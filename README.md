@@ -10,4 +10,11 @@
 - `bleMouseInstance->hid->manufacturer()->setValue(bleMouseInstance->deviceManufacturer);` TO `bleMouseInstance->hid->manufacturer()->setValue(String(bleMouseInstance->deviceManufacturer.c_str()));`
 - Flash code, you will see red messages eg: Pragma once. These are NOT Error messages, they are the headers from the esp32 library.
 
+## Pin Connections
+### BMA220 (Gyro) -> ESP32-WROOM-32
+- VCC -> 3.3V
+- GND -> GND
+- SCL -> D22
+- SDA -> D21
+
 
