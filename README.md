@@ -8,7 +8,7 @@
 5. In BleMouse.cpp, make these changes:
 - `BLEDevice::init(bleMouseInstance->deviceName);` TO `BLEDevice::init(String(bleMouseInstance->deviceName.c_str()));`
 - `bleMouseInstance->hid->manufacturer()->setValue(bleMouseInstance->deviceManufacturer);` TO `bleMouseInstance->hid->manufacturer()->setValue(String(bleMouseInstance->deviceManufacturer.c_str()));`
-- Flash code, you will see red messages eg: Pragma once. These are NOT Error messages, they are the headers from the esp32 library.
+- Flash esp-32.ino, you will see red messages eg: Pragma once. These are NOT Error messages, they are the headers from the esp32 library.
 
 ## Pin Connections
 ### BMA220 (Gyro) -> ESP32-WROOM-32
