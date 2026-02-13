@@ -2,7 +2,7 @@
 
 ## How to get working 
 
-1. Download the zip file from [ESP32-BLE-Mouse](https://github.com/T-vK/ESP32-BLE-Mouse)
+1. Download the zip file from [https://github.com/T-vK/ESP32-BLE-Mouse](https://github.com/T-vK/ESP32-BLE-Mouse)
 3. In Arduino IDE, goto sketch -> include library -> Add .ZIP library
 4. Goto `C:\Users\[YourName]\Documents\Arduino\libraries\ESP32_BLE_Mouse\BleMouse.cpp` Or wherever your libraries for arduino ide are stored.
 5. In BleMouse.cpp, make these changes:
