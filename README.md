@@ -17,4 +17,12 @@
 - SCL -> D22
 - SDA -> D21
 
+  ## PINOUTS
+  ### ESP32-WROOM
+  <img width="1777" height="1039" alt="image" src="https://github.com/user-attachments/assets/1944ba7b-7eb2-41f2-b6fc-62b6960291d2" />
+
+  ### BMA220
+  <img width="474" height="474" alt="image" src="https://github.com/user-attachments/assets/55289410-c95c-4dc8-998e-da0ccb504720" />
+
+
 
