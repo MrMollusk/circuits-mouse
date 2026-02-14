@@ -9,6 +9,8 @@ float divi = 16;
 float x, y, z;
 
 BleMouse bleMouse("AccelMouse", "ESP32", 100);
+const int LEFT_CLICK = 18;
+const int RIGHT_CLICK = 17;
 
 static inline int8_t clamp127(int v) {
   if (v > 127) return 127;
@@ -19,6 +21,8 @@ static inline int8_t clamp127(int v) {
 void setup() {
   Serial.begin(9600);
   Wire.begin();
+  pinMode(LEFT_CLICK, INPUT_PULLUP);
+  pinMode(RIGHT_CLICK, INPUT_PULLUP);
 
   // accel config (as you had it)
   Wire.beginTransmission(0x0A);
@@ -48,8 +52,8 @@ void mouseFunction(float xVal, float yVal) {
   int dy = (int)(yVal * 40.0f);
 
   // deadzone to stop jitter
-  if (abs(dx) < 2) dx = 0;
-  if (abs(dy) < 2) dy = 0;
+  if (abs(dx) < 2) dx = 10;
+  if (abs(dy) < 2) dy = 10;
 
   bleMouse.move(clamp127(dy), clamp127(dx), 0);
   delay(10);
@@ -67,6 +71,24 @@ void loop() {
   readAxis(0x04, Version[0], x_data);
   readAxis(0x06, Version[1], y_data);
   readAxis(0x08, Version[2], z_data);
+
+  //bleMouse.click(LEFT_CLICK);
+  bool leftClickPressed = digitalRead(LEFT_CLICK);
+  bool rightClickPressed = digitalRead(RIGHT_CLICK);
+
+  Serial.print("Left-Click: ");
+  Serial.print(leftClickPressed);
+
+  Serial.print("Right-Click: ");
+  Serial.print(rightClickPressed);
+
+  if(leftClickPressed){
+    bleMouse.click(MOUSE_LEFT);
+  }
+  
+  if(rightClickPressed){
+    bleMouse.click(MOUSE_RIGHT);
+  }
 
   x = (float)x_data / divi;
   y = (float)y_data / divi;
