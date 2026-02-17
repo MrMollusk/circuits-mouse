@@ -24,5 +24,8 @@
   ### BMA220
   <img width="474" height="474" alt="image" src="https://github.com/user-attachments/assets/55289410-c95c-4dc8-998e-da0ccb504720" />
 
+  ### Fritzing Diagram 17/02/2026
+  <img width="572" height="673" alt="image" src="https://github.com/user-attachments/assets/cec71ba9-26b5-4753-91cb-3d84b76cd963" />
+
 
 
