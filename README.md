@@ -27,5 +27,7 @@
   ### Fritzing Diagram 17/02/2026
   <img width="572" height="673" alt="image" src="https://github.com/user-attachments/assets/cec71ba9-26b5-4753-91cb-3d84b76cd963" />
 
+Cap values = 4.7nF
+Res values = 
 
 
