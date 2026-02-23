@@ -8,9 +8,18 @@ byte range = 0x00;
 float divi = 16;
 float x, y, z;
 
+
+
 BleMouse bleMouse("AccelMouse", "ESP32", 100);
 const int LEFT_CLICK = 18;
 const int RIGHT_CLICK = 17;
+
+
+const int SCROLL = 2;
+int scroll_val;
+int last_scroll_val;
+int threshold = 20;   // sensitivity
+
 
 static inline int8_t clamp127(int v) {
   if (v > 127) return 127;
@@ -59,6 +68,27 @@ void mouseFunction(float xVal, float yVal) {
   delay(10);
 }
 
+void RotationSensor() {
+  scroll_val = analogRead(SCROLL);      //Read slider value from analog 0
+  int delta = scroll_val - last_scroll_val;
+  if (bleMouse.isConnected()) {
+        Serial.print("Scroll Value: ");
+        Serial.println(scroll_val);
+
+    if (delta > threshold) { //clock wise
+      bleMouse.move(0, 0, 1);   // scroll up
+        bleMouse.move(0, 0, delta / 50);
+    }
+    else if (delta < -threshold) { //anticlock wise
+      bleMouse.move(0, 0, -1);  // scroll down
+        bleMouse.move(0, 0, -delta / 50);
+    }
+    last_scroll_val = scroll_val;
+
+    delay(10);
+  }
+}
+
 void loop() {
   switch (range) {
     case 0x00: divi = 16; break;
@@ -89,6 +119,9 @@ void loop() {
   if(rightClickPressed){
     bleMouse.click(MOUSE_RIGHT);
   }
+
+  RotationSensor();
+
 
   x = (float)x_data / divi;
   y = (float)y_data / divi;
