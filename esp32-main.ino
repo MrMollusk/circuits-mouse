@@ -3,37 +3,37 @@
 #include <BleMouse.h>
 
 byte Version[3];
-int8_t x_data, y_data, z_data;
-byte range = 0x00;
-float divi = 16;
-float x, y, z;
 
-
-
-BleMouse bleMouse("AccelMouse", "ESP32", 100);
+//PINS
+const int EncoderEight = 16;
+const int EncoderFour = 4;
+const int EncoderTwo = 2;
+const int EncoderOne = 15;
+const int SCROLL = 35;
 const int LEFT_CLICK = 18;
 const int RIGHT_CLICK = 17;
 
-
-const int SCROLL = 2;
-int scroll_val;
-int last_scroll_val;
-int threshold = 20;   // sensitivity
-
-
-static inline int8_t clamp127(int v) {
-  if (v > 127) return 127;
-  if (v < -127) return -127;
-  return (int8_t)v;
-}
+//Global Variables
+byte range = 0x00;
+float divi = 16;
+float rotationVal;
+int pastEncoderValue = 0;
+BleMouse bleMouse("AccelMouse", "ESP32", 100);
 
 void setup() {
   Serial.begin(9600);
   Wire.begin();
-  pinMode(LEFT_CLICK, INPUT_PULLUP);
-  pinMode(RIGHT_CLICK, INPUT_PULLUP);
 
-  // accel config (as you had it)
+  //Initialising Pins
+  pinMode(LEFT_CLICK, INPUT_PULLUP); //Using PULLUP to get rid of noise: https://electronics.stackexchange.com/questions/542260/why-is-my-pullup-resistor-more-noise-immune-than-a-pull-down
+  pinMode(RIGHT_CLICK, INPUT_PULLUP);
+  pinMode(EncoderEight, INPUT_PULLUP);
+  pinMode(EncoderFour, INPUT_PULLUP);
+  pinMode(EncoderTwo, INPUT_PULLUP);
+  pinMode(EncoderOne, INPUT_PULLUP);
+
+  //Wire. enables us to use I2C communication
+  //The following lines initialise various parameters of the accelerometer
   Wire.beginTransmission(0x0A);
   Wire.write(0x22);
   Wire.write(range);
@@ -42,6 +42,32 @@ void setup() {
   Wire.endTransmission();
 
   bleMouse.begin();   // pair from PC Bluetooth settings
+}
+
+static inline int8_t clamp127(int v) { //This function just prevents the values from the accelerometer going over a certain value
+  if (v > 127) return 127;
+  if (v < -127) return -127;
+  return (int8_t)v;
+}
+
+int EncoderValueFunction(){
+  int eight = digitalRead(EncoderEight);
+  int four = digitalRead(EncoderFour);
+  int two = digitalRead(EncoderTwo);
+  int one = digitalRead(EncoderOne);
+
+  int scrollAmount = 0;
+  int value = one + 2*two + 2*2*four + 2*2*2*eight; //Converting the encoder values from binary to decimal
+
+  if(value > pastEncoderValue || (value == 0 && pastEncoderValue ==15)){
+    scrollAmount = 1;
+  }
+  else if (value < pastEncoderValue || (value == 15 && pastEncoderValue == 0)){
+    scrollAmount = -1;
+  }
+
+  pastEncoderValue = value;
+  return scrollAmount;
 }
 
 void readAxis(uint8_t reg, byte &dst, int8_t &out) {
@@ -54,84 +80,78 @@ void readAxis(uint8_t reg, byte &dst, int8_t &out) {
   out = ((int8_t)dst) >> 2;
 }
 
-void mouseFunction(float xVal, float yVal) {
+void mouseFunction(float xVal, float yVal, int scroll) {
   if (!bleMouse.isConnected()) return;
 
   int dx = (int)(xVal * 40.0f);
   int dy = (int)(yVal * 40.0f);
 
   // deadzone to stop jitter
-  if (abs(dx) < 2) dx = 10;
-  if (abs(dy) < 2) dy = 10;
+  if (abs(dx) < 10) dx = 0;
+  if (abs(dy) < 10) dy = 0;
 
-  bleMouse.move(clamp127(dy), clamp127(dx), 0);
-  delay(10);
+  bleMouse.move(clamp127(dy), clamp127(dx), scroll);
 }
 
 void RotationSensor() {
-  scroll_val = analogRead(SCROLL);      //Read slider value from analog 0
-  int delta = scroll_val - last_scroll_val;
-  if (bleMouse.isConnected()) {
-        Serial.print("Scroll Value: ");
-        Serial.println(scroll_val);
-
-    if (delta > threshold) { //clock wise
-      bleMouse.move(0, 0, 1);   // scroll up
-        bleMouse.move(0, 0, delta / 50);
-    }
-    else if (delta < -threshold) { //anticlock wise
-      bleMouse.move(0, 0, -1);  // scroll down
-        bleMouse.move(0, 0, -delta / 50);
-    }
-    last_scroll_val = scroll_val;
-
-    delay(10);
-  }
+  rotationVal = analogRead(SCROLL);
+  divi = 2.0f + (7.0f/4095.0f)*rotationVal; //divi is used to change the sensitivity of the system
 }
 
-void loop() {
-  switch (range) {
-    case 0x00: divi = 16; break;
-    case 0x01: divi =  8; break;
-    case 0x02: divi =  4; break;
-    case 0x03: divi =  2; break;
-    default: while (1) {}
-  }
+void printInformation(bool leftClickPressed, bool rightClickPressed, float x, float y, float z){
 
-  readAxis(0x04, Version[0], x_data);
-  readAxis(0x06, Version[1], y_data);
-  readAxis(0x08, Version[2], z_data);
-
-  //bleMouse.click(LEFT_CLICK);
-  bool leftClickPressed = digitalRead(LEFT_CLICK);
-  bool rightClickPressed = digitalRead(RIGHT_CLICK);
-
+  //Mouse Button Press
   Serial.print("Left-Click: ");
   Serial.print(leftClickPressed);
-
   Serial.print("Right-Click: ");
   Serial.print(rightClickPressed);
 
-  if(leftClickPressed){
-    bleMouse.click(MOUSE_LEFT);
-  }
   
-  if(rightClickPressed){
-    bleMouse.click(MOUSE_RIGHT);
-  }
-
-  RotationSensor();
-
-
-  x = (float)x_data / divi;
-  y = (float)y_data / divi;
-  z = (float)z_data / divi;
-
+  Serial.print("Divi: ");
+  Serial.println(divi);
 
   Serial.print("X="); Serial.print(x);
   Serial.print("  Y="); Serial.print(y);
   Serial.print("  Z="); Serial.println(z);
 
-  mouseFunction(x, y);
-  delay(10);
+}
+
+void buttonFunction(bool &leftClickPressed, bool &rightClickPressed){
+  leftClickPressed = digitalRead(LEFT_CLICK);
+  rightClickPressed = digitalRead(RIGHT_CLICK);
+
+  if(!leftClickPressed){ //Using NOTleftClickPressed because using INPUT_PULLUP
+    bleMouse.click(MOUSE_LEFT);
+  }
+  
+  if(!rightClickPressed){ //Using NOTleftClickPressed because using INPUT_PULLUP
+    bleMouse.click(MOUSE_RIGHT);
+  }
+}
+
+void accelerometerFunction(float &x, float &y, float &z){
+  int8_t x_data, y_data, z_data;
+
+  readAxis(0x04, Version[0], x_data);
+  readAxis(0x06, Version[1], y_data);
+  readAxis(0x08, Version[2], z_data);
+
+  x = (float)x_data / divi;
+  y = (float)y_data / divi;
+  z = (float)z_data / divi;
+}
+
+void loop() {
+  float x, y, z;
+  bool leftClickPressed, rightClickPressed;
+
+  buttonFunction(leftClickPressed, rightClickPressed);
+  int scroll = EncoderValueFunction();
+  RotationSensor();
+  accelerometerFunction(x, y, z);
+  //printInformation(leftClickPressed, rightClickPressed, x, y, z);
+
+  mouseFunction(x, y, scroll);
+
+  delay(50);
 }
