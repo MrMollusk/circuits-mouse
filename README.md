@@ -32,5 +32,5 @@ Cap values = 4.7nF
 Res values = 1kOhm
 
 
-<img width="592" height="679" alt="image" src="https://github.com/user-attachments/assets/1ccdd6a7-2b7a-4b71-abaa-57257322258f" />
+
 <img width="592" height="679" alt="image" src="https://github.com/user-attachments/assets/1ccdd6a7-2b7a-4b71-abaa-57257322258f" />
