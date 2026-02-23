@@ -24,7 +24,7 @@
   ### BMA220
   <img width="474" height="474" alt="image" src="https://github.com/user-attachments/assets/55289410-c95c-4dc8-998e-da0ccb504720" />
 
-###Rotation Sensor Pinout
+### Rotation Sensor Pinout
 <img width="399" height="660" alt="image" src="https://github.com/user-attachments/assets/268f45dd-1e70-472e-bbae-382b6f05db84" />
 
 
