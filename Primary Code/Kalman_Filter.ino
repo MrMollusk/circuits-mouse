@@ -1,18 +1,29 @@
 #include <Wire.h>
 #include <Arduino.h>
 #include <BleMouse.h>
-#include <Kalman.h>
 #include <BasicLinearAlgebra.h>
+#include <Kalman.h>
 
 using namespace BLA;
 
 byte Version[3];
 
-#define Nstate 2
+#define Nstate 3
 #define Nobs 2
 
-KALMAN<Nstate, Nobs> K;
+#define n_p 1
+#define n_a 0.165
+
+// model std (1/inertia)
+#define m_p 0.1
+#define m_s 0.1
+#define m_a 0.8
+
+unsigned long T;
+float DT;
+
 BLA::Matrix<Nobs> obs;
+KALMAN<Nstate, Nobs> K;
 
 //PINS
 const int EncoderEight = 16;
@@ -51,7 +62,25 @@ void setup() {
   Wire.write(0x05);
   Wire.endTransmission();
 
+   K.F = {1.0, 0.0, 0.0,
+		 0.0, 1.0, 0.0,
+         0.0, 0.0, 1.0};
+
+  // measurement matrix n the position (e.g. GPS) and acceleration (e.g. accelerometer)
+  K.H = {1.0, 0.0, 0.0,
+         0.0, 0.0, 1.0};
+  // measurement covariance matrix
+  K.R = {n_p*n_p,   0.0,
+           0.0, n_a*n_a};
+  // model covariance matrix
+  K.Q = {m_p*m_p,     0.0,     0.0,
+             0.0, m_s*m_s,     0.0,
+			 0.0,     0.0, m_a*m_a};
+
+
   bleMouse.begin();   // pair from PC Bluetooth settings
+
+  T = millis();
 }
 
 static inline int8_t clamp127(int v) { //This function just prevents the values from the accelerometer going over a certain value
@@ -105,7 +134,7 @@ void mouseFunction(float xVal, float yVal, int scroll) {
 
 void RotationSensor() {
   rotationVal = analogRead(SCROLL);
-  divi = 2.0f + (7.0f/4095.0f)*rotationVal; //divi is used to change the sensitivity of the system
+  divi = (0.05f/4095.0f)*rotationVal; //divi is used to change the sensitivity of the system
 }
 
 void printInformation(bool leftClickPressed, bool rightClickPressed, float x, float y, float z){
@@ -151,19 +180,55 @@ void accelerometerFunction(float &x, float &y, float &z){
   z = (float)z_data / divi;
 }
 
+float xVelocity(float x, float prevX, float prevT){
+  return (x-prevX)/(T - prevT);
+}
+
+float yVelocity(float y, float prevY, float prevT){
+  if(T == prevT){
+    return 0;
+  }
+  return (y-prevY)/(T - prevT);
+}
+
+
 void loop() {
   float x, y, z;
   bool leftClickPressed, rightClickPressed;
 
 
-  K.
+  DT = (millis() - T)/1000.0;
+  T = millis();
+   K.F = {1.0,  DT,  DT*DT/2,
+		      0.0, 1.0,       DT,
+          0.0, 0.0,      1.0};
+
+
+
+  
   buttonFunction(leftClickPressed, rightClickPressed);
   int scroll = EncoderValueFunction();
   RotationSensor();
   accelerometerFunction(x, y, z);
   //printInformation(leftClickPressed, rightClickPressed, x, y, z);
 
-  mouseFunction(x, y, scroll);
+  obs(0) = x;
+  obs(1) = y;
+  K.update(obs);
 
-  delay(10);
+  Serial.println("Non-filtered values: ");
+  Serial.print("X = ");
+  Serial.println(x);
+  Serial.print("Y = ");
+  Serial.println(y, 6);
+
+  Serial.println("Filtered values: ");
+  Serial.print("X = ");
+  Serial.println(K.x(0));
+  Serial.print("Y = ");
+  Serial.println(K.x(1));
+
+  mouseFunction(K.x(0), K.x(1), scroll);
+
+  delay(5);
 }
