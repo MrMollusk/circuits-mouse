@@ -10,6 +10,9 @@
 - `bleMouseInstance->hid->manufacturer()->setValue(bleMouseInstance->deviceManufacturer);` TO `bleMouseInstance->hid->manufacturer()->setValue(String(bleMouseInstance->deviceManufacturer.c_str()));`
 - Flash esp-32.ino, you will see red messages eg: Pragma once. These are NOT Error messages, they are the headers from the esp32 library.
 
+##Uploading to the ESP32
+To get consistent results when uploading to the ESP32, do the following:
+"What works for me is: Press and hold Boot button, click EN button, click Upload, release Boot button when "Connecting...." is displayed."
 ## Pin Connections
 ### BMA220 (Gyro) -> ESP32-WROOM-32
 - VCC -> 3.3V
