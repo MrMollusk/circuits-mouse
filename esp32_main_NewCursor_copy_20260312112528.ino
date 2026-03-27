@@ -12,12 +12,12 @@ byte Version[3];
 #define Nstate 2
 #define Nobs 2
 
-#define n_p 0.027225
-#define n_a 0.027225
+#define n_p 0.05
+#define n_a 0.05
 
 // model std (1/inertia)
-#define m_p 0.1
-#define m_s 0.1
+#define m_p 0.01
+#define m_s 0.01
 
 unsigned long T;
 float DT;
@@ -26,14 +26,14 @@ BLA::Matrix<Nobs> obs;
 KALMAN<Nstate, Nobs> K;
 
 //PINS
-const int EncoderEight = 16;
-const int EncoderFour = 4;
-const int EncoderTwo = 2;
-const int EncoderOne = 15;
-const int SCROLL = 35;
-const int LEFT_CLICK = 18;
-const int RIGHT_CLICK = 17;
-const int TOUCH_SENSOR = 34;
+const int EncoderEight = 26;
+const int EncoderFour = 25;
+const int EncoderTwo = 33;
+const int EncoderOne = 32;
+const int SCROLL = 15;  //sensitivity adjuster
+const int LEFT_CLICK = 19;
+const int RIGHT_CLICK = 18;
+const int TOUCH_SENSOR = 4;
 
 //Global Variables
 byte range = 0x00;
@@ -51,7 +51,7 @@ LSM6DS3 cursor(I2C_MODE, 0x6A); //accel/gyro object
 
 float compAngleX = 0.0f;   //maps to mouse X
 float compAngleY = 0.0f;   //maps to mouse Y
-#define ALPHA 0.96f         //uses 96% of the gyroscope and 4% of accel to improve accuracy - can be changed
+#define ALPHA 0.97f         //uses 97% of the gyroscope and 3% of accel to improve accuracy - can be changed
 
 
 void setup() {
@@ -74,6 +74,11 @@ void setup() {
   // Wire.write(0x20);
   // Wire.write(0x05);
   // Wire.endTransmission();
+
+  while(!bleMouse.isConnected()){
+    Serial.println("Not connected");
+    delay(100);
+  }
 
   if (cursor.begin() != 0) {
     Serial.println("tilt failed");
@@ -155,6 +160,8 @@ void cursorFunction(float &x, float &y, float &z) {
   //scaling to match previous cursor movements
   x =  compAngleX / 90.0f;
   y = -compAngleY / 90.0f;   //negate so tilting forward moves cursor up
+  
+
 }
 
 int EncoderValueFunction(){
@@ -166,10 +173,10 @@ int EncoderValueFunction(){
   int scrollAmount = 0;
   int value = one + 2*two + 2*2*four + 2*2*2*eight; //Converting the encoder values from binary to decimal
 
-  if(value > pastEncoderValue || (value == 0 && pastEncoderValue ==15)){
+  if((value > pastEncoderValue || (value == 0 && pastEncoderValue ==15)) && !(value == 15 && pastEncoderValue == 0)){
     scrollAmount = 1;
   }
-  else if (value < pastEncoderValue || (value == 15 && pastEncoderValue == 0)){
+  else if ((value < pastEncoderValue || (value == 15 && pastEncoderValue == 0)) && !(value == 0 && pastEncoderValue ==15)){
     scrollAmount = -1;
   }
 
@@ -195,9 +202,13 @@ void mouseFunction(float xVal, float yVal, int scroll) {
   int dx = (int)(xVal * 40.0f * sensitivity);
   int dy = (int)(yVal * 40.0f * sensitivity);
 
-  // deadzone to stop jitter
+  //deadzone to stop jitter
   if (abs(dx) < 1) dx = 0;
   if (abs(dy) < 1) dy = 0;
+
+Serial.print("sensitivity - "); Serial.println(sensitivity);
+  Serial.print("x - "); Serial.println(dx);
+  Serial.print("y - "); Serial.println(dy);
 
   bleMouse.move(clamp127(dy), clamp127(dx), scroll);
 }
@@ -214,18 +225,20 @@ float RotationSensor() {
 void printInformation(bool leftClickPressed, bool rightClickPressed, float x, float y, float z){
 
   //Mouse Button Press
-  Serial.print("Left-Click: ");
-  Serial.print(leftClickPressed);
-  Serial.print("Right-Click: ");
-  Serial.print(rightClickPressed);
+  // Serial.print("Left-Click: ");
+  // Serial.print(leftClickPressed);
+  // Serial.print("Right-Click: ");
+  // Serial.print(rightClickPressed);
 
   
-  Serial.print("Divi: ");
-  Serial.println(divi);
+  // Serial.print("Divi: ");
+  // Serial.println(divi);
 
   Serial.print("X="); Serial.print(x);
   Serial.print("  Y="); Serial.print(y);
-  Serial.print("  Z="); Serial.println(z);
+  // Serial.print("  Z="); Serial.println(z);
+
+ // Serial.print ('Curved Response = '); Serial.println()
 
 }
 
@@ -312,9 +325,9 @@ void loop() {
 
   double dt = currentTime - timeSinceTrigger;
 
-  if(dt < 100000){
-    DT = (millis() - T)/1000.0;
-    T = millis();
+  // if(dt < 100000){
+  //   DT = (millis() - T)/1000.0;
+  //   T = millis();
     K.F = {1.0,  0,
             0.0, 1.0};
 
@@ -322,11 +335,13 @@ void loop() {
     cursorFunction(x, y, z);
     
     buttonFunction(leftClickPressed, rightClickPressed);
-    int scroll = EncoderValueFunction();
+    float scroll = EncoderValueFunction();
     
     //accelerometerFunction(x, y, z);
     //printInformation(leftClickPressed, rightClickPressed, x, y, z);
     //RotationSensor(x, y);
+    // Serial.print("gyro x = "); Serial.println(x);
+    // Serial.print("gyro y = "); Serial.println(y);
 
 
     obs(0) = x;
@@ -348,15 +363,21 @@ void loop() {
     x = K.x(0);
     y = K.x(1);
 
+    // Serial.print("kalman x = "); Serial.println(x);
+    // Serial.print("Kalman y = "); Serial.println(y);
+
   x = curvedResponse(x);
   y = curvedResponse(y);
+
+    // Serial.print("curved x = "); Serial.println(x);
+    // Serial.print("curved y = "); Serial.println(y);
 
     // Serial.print("X: ");
     // Serial.println(x);
     // Serial.print("Y: ");
     // Serial.println(y);
     mouseFunction(x, y, scroll);
-  }
+  // }
 
-  delay(100);
+  delay(10);
 }
