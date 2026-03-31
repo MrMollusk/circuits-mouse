@@ -32,7 +32,8 @@ To get consistent results when uploading to the ESP32, do the following:
 
 
   ### Fritzing Diagram 17/02/2026
-  <img width="572" height="673" alt="image" src="https://github.com/user-attachments/assets/cec71ba9-26b5-4753-91cb-3d84b76cd963" />
+<img width="675" height="730" alt="image" src="https://github.com/user-attachments/assets/eff5c39a-af12-4629-82e2-1b541c09c9a2" />
+
 
 Cap values = 4.7nF
 
