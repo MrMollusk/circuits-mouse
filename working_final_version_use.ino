@@ -4,6 +4,10 @@
 #define BOOT_BUTTON_PIN 0
 const uint8_t IMU_ADDR = 0x68;   // AD0 tied to GND
 
+// Mouse buttons
+#define LEFT_BUTTON_PIN 33
+#define RIGHT_BUTTON_PIN 32
+
 // 1/2/4/8/C coded rotary switch pins
 const int ENC_1 = 25;
 const int ENC_2 = 26;
@@ -18,6 +22,11 @@ unsigned long lastPrint = 0;
 // Encoder state
 int lastEncValue = -1;
 unsigned long lastEncChangeMs = 0;
+
+// Mouse button state
+bool lastLeftMousePressed = false;
+bool lastRightMousePressed = false;
+bool lastPairedState = false;
 
 void writeReg(uint8_t reg, uint8_t val) {
   Wire.beginTransmission(IMU_ADDR);
@@ -108,6 +117,9 @@ void setup() {
 
   pinMode(BOOT_BUTTON_PIN, INPUT_PULLUP);
 
+  pinMode(LEFT_BUTTON_PIN, INPUT_PULLUP);
+  pinMode(RIGHT_BUTTON_PIN, INPUT_PULLUP);
+
   pinMode(ENC_1, INPUT_PULLUP);
   pinMode(ENC_2, INPUT_PULLUP);
   pinMode(ENC_4, INPUT_PULLUP);
@@ -133,14 +145,32 @@ void setup() {
   Serial.print("Initial encoder value = ");
   Serial.println(lastEncValue);
 
+  // Active-low buttons
+  lastLeftMousePressed = (digitalRead(LEFT_BUTTON_PIN) == LOW);
+  lastRightMousePressed = (digitalRead(RIGHT_BUTTON_PIN) == LOW);
+
   mouse.setLogLevel(HIDLogLevel::Normal);
   mouse.begin();
 }
 
 void loop() {
-  if (!mouse.isPaired()) {
+  bool paired = mouse.isPaired();
+
+  if (!paired) {
+    lastPairedState = false;
     delay(20);
     return;
+  }
+
+  // Sync button state once immediately after pairing
+  if (!lastPairedState) {
+    lastPairedState = true;
+
+    lastLeftMousePressed = (digitalRead(LEFT_BUTTON_PIN) == LOW);
+    lastRightMousePressed = (digitalRead(RIGHT_BUTTON_PIN) == LOW);
+
+    mouse.setButton(MouseButton::Left, lastLeftMousePressed);
+    mouse.setButton(MouseButton::Right, lastRightMousePressed);
   }
 
   // BOOT test move
@@ -155,6 +185,26 @@ void loop() {
     }
   }
   lastBootPressed = bootPressed;
+
+  // Left/right mouse buttons
+  bool leftPressed = (digitalRead(LEFT_BUTTON_PIN) == LOW);
+  bool rightPressed = (digitalRead(RIGHT_BUTTON_PIN) == LOW);
+
+  if (leftPressed != lastLeftMousePressed) {
+    lastLeftMousePressed = leftPressed;
+    mouse.setButton(MouseButton::Left, leftPressed);
+
+    Serial.print("Left mouse button ");
+    Serial.println(leftPressed ? "pressed" : "released");
+  }
+
+  if (rightPressed != lastRightMousePressed) {
+    lastRightMousePressed = rightPressed;
+    mouse.setButton(MouseButton::Right, rightPressed);
+
+    Serial.print("Right mouse button ");
+    Serial.println(rightPressed ? "pressed" : "released");
+  }
 
   // IMU mouse movement
   int16_t ax = read16(0x3B);
@@ -206,7 +256,11 @@ void loop() {
     Serial.print(" az=");
     Serial.print(faz, 3);
     Serial.print(" enc=");
-    Serial.println(lastEncValue);
+    Serial.print(lastEncValue);
+    Serial.print(" left=");
+    Serial.print(leftPressed ? 1 : 0);
+    Serial.print(" right=");
+    Serial.println(rightPressed ? 1 : 0);
   }
 
   delay(10);
