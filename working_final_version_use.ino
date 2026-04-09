@@ -14,6 +14,8 @@ const int ENC_2 = 26;
 const int ENC_4 = 27;
 const int ENC_8 = 14;
 
+const int SCROLL = 15;
+
 HijelBLEMouse mouse("ESP32 Mouse", "ESP32");
 
 bool lastBootPressed = false;
@@ -33,6 +35,12 @@ void writeReg(uint8_t reg, uint8_t val) {
   Wire.write(reg);
   Wire.write(val);
   Wire.endTransmission();
+}
+
+void RotationSensor(float& dx, float& dy) {
+  float rotationVal = analogRead(SCROLL);
+  dx = (dx*0.5f/4095.0f)*rotationVal;
+  dy = (dy*0.5f/4095.0f)*rotationVal;
 }
 
 bool readBytes(uint8_t reg, uint8_t *buf, uint8_t len) {
@@ -124,6 +132,7 @@ void setup() {
   pinMode(ENC_2, INPUT_PULLUP);
   pinMode(ENC_4, INPUT_PULLUP);
   pinMode(ENC_8, INPUT_PULLUP);
+  pinMode(SCROLL, INPUT);
 
   Wire.begin(21, 22);
   Wire.setClock(100000);
@@ -220,8 +229,8 @@ void loop() {
   // back tilt -> down
   // left tilt -> left
   // right tilt -> right
-  int dx = (int)(-fax * 35.0f);
-  int dy = (int)( fay * 35.0f);
+  float dx = (int)(-fax * 35.0f);
+  float dy = (int)( fay * 35.0f);
 
   if (abs(dx) < 2) dx = 0;
   if (abs(dy) < 2) dy = 0;
@@ -230,6 +239,7 @@ void loop() {
   dy = clamp127(dy);
 
   if (dx != 0 || dy != 0) {
+    RotationSensor(dx, dy);
     mouse.move(dx, dy);
   }
 
