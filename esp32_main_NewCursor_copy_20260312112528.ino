@@ -1,317 +1,176 @@
+
 #include <Wire.h>
-#include <Arduino.h>
-#include <BleMouse.h>
-#include <BasicLinearAlgebra.h>
-#include <Kalman.h>
-#include <LSM6DS3.h>
+#include <HijelHID_BLEMouse.h>
 
-using namespace BLA;
+#define BOOT_BUTTON_PIN 0
+const uint8_t IMU_ADDR = 0x68;   // AD0 tied to GND
 
-byte Version[3];
+// Mouse buttons
+#define LEFT_BUTTON_PIN 33
+#define RIGHT_BUTTON_PIN 32
 
-#define Nstate 2
-#define Nobs 2
+// 1/2/4/8/C coded rotary switch pins
+const int ENC_1 = 25;
+const int ENC_2 = 26;
+const int ENC_4 = 27;
+const int ENC_8 = 14;
 
-#define n_p 0.05
-#define n_a 0.05
-
-// model std (1/inertia)
-#define m_p 0.01
-#define m_s 0.01
-
-unsigned long T;
-float DT;
-
-BLA::Matrix<Nobs> obs;
-KALMAN<Nstate, Nobs> K;
-
-//PINS
-const int EncoderEight = 26;
-const int EncoderFour = 25;
-const int EncoderTwo = 33;
-const int EncoderOne = 32;
 const int SCROLL = 15;  //sensitivity adjuster
-const int LEFT_CLICK = 19;
-const int RIGHT_CLICK = 18;
-const int TOUCH_SENSOR = 4;
 
-//Global Variables
-byte range = 0x00;
-float divi = 8;
-float rotationVal;
-int pastEncoderValue = 0;
-bool leftMouseCurrentlyBeingPressed = false;
-bool rightMouseCurrentlyBeingPressed = false;
-BleMouse bleMouse("AccelMouse", "ESP32", 100);
+const int TOUCH_SENSOR = 4; //touch sensor pin
 
-double timeSinceTrigger = millis();
-double currentTime = millis();
+HijelBLEMouse mouse("ESP32 Mouse", "ESP32");
 
-LSM6DS3 cursor(I2C_MODE, 0x6A); //accel/gyro object
+bool lastBootPressed = false;
+unsigned long lastPrint = 0;
 
-float compAngleX = 0.0f;   //maps to mouse X
-float compAngleY = 0.0f;   //maps to mouse Y
-#define ALPHA 0.97f         //uses 97% of the gyroscope and 3% of accel to improve accuracy - can be changed
+// Encoder state
+int lastEncValue = -1;
+unsigned long lastEncChangeMs = 0;
 
+// Mouse button state
+bool lastLeftMousePressed = false;
+bool lastRightMousePressed = false;
+bool lastPairedState = false;
 
-void setup() {
-  Serial.begin(9600);
-  Wire.begin();
-
-  //Initialising Pins
-  pinMode(LEFT_CLICK, INPUT_PULLUP); //Using PULLUP to get rid of noise: https://electronics.stackexchange.com/questions/542260/why-is-my-pullup-resistor-more-noise-immune-than-a-pull-down
-  pinMode(RIGHT_CLICK, INPUT_PULLUP);
-  pinMode(EncoderEight, INPUT_PULLUP);
-  pinMode(EncoderFour, INPUT_PULLUP);
-  pinMode(EncoderTwo, INPUT_PULLUP);
-  pinMode(EncoderOne, INPUT_PULLUP);
-
-  // Wire. enables us to use I2C communication
-  // The following lines initialise various parameters of the accelerometer
-  // Wire.beginTransmission(0x0A);
-  // Wire.write(0x22);
-  // Wire.write(range);
-  // Wire.write(0x20);
-  // Wire.write(0x05);
-  // Wire.endTransmission();
-
-  while(!bleMouse.isConnected()){
-    Serial.println("Not connected");
-    delay(100);
-  }
-
-  if (cursor.begin() != 0) {
-    Serial.println("tilt failed");
-  }
-
-  /*
-  K.F tells us the following:
-
-  K.F = {How much the current roll angle depends on the previous roll value, How much the previous roll value depends on the pitch
-        How much the current pitch depends on the previous roll, How much the current pitch depends on the previous roll}
-  
-  */
-   K.F = {1.0, 0.0,
-		 0.0, 1.0}; 
-
-  /*
-  K.H tells us the following:
-
-  K.H = {How the current roll measurement corresponds to the roll state (state as in what the sensor is returning), How much the roll measurement currently depends on the pitch state,
-          How much the current pitch depends on the current roll state, How much the current pitch depends on the current pitch state}
-  */
-  K.H = {1.0, 0.0,
-         0.0, 1.0};
-
-/*
-K.R tells us the following values:
-
-K.R = {Measurement of the variance in the roll angle, The covariance of roll and pitch (should be zero as they are independent)
-        Covariance of pitch and roll (should be the same as previous value), Variance of pitch}
-*/
-  K.R = {n_p*n_p,   0.0,
-           0.0, n_a*n_a};
-
-
-  /*
-  K.Q differs from K.R by measuring the variance of the real, actual measurements, rather than measuring the variance of K.R
-
-  K.Q = {Variance of Random Roll Angle change between updates, How random pitch motion affects roll, 
-          How random rol motiona affects pitch prediction, Variance of random pitch angle change between updates}
-
-  */
-  K.Q = {m_p*m_p,     0.0, 
-             0.0, m_s*m_s
-  };
-
-
-  bleMouse.begin();   // pair from PC Bluetooth settings
-
-  T = millis();
-
-  
-  double timeSinceTrigger = millis();
-  double currentTime = millis();
+void writeReg(uint8_t reg, uint8_t val) {
+  Wire.beginTransmission(IMU_ADDR);
+  Wire.write(reg);
+  Wire.write(val);
+  Wire.endTransmission();
 }
 
-static inline int8_t clamp127(int v) { //This function just prevents the values from the accelerometer going over a certain value
+bool readBytes(uint8_t reg, uint8_t *buf, uint8_t len) {
+  Wire.beginTransmission(IMU_ADDR);
+  Wire.write(reg);
+  if (Wire.endTransmission(false) != 0) return false;
+
+  uint8_t n = Wire.requestFrom((int)IMU_ADDR, (int)len);
+  if (n != len) return false;
+
+  for (uint8_t i = 0; i < len; i++) {
+    if (!Wire.available()) return false;
+    buf[i] = Wire.read();
+  }
+  return true;
+}
+
+uint8_t readReg(uint8_t reg) {
+  uint8_t v = 0xFF;
+  if (readBytes(reg, &v, 1)) return v;
+  return 0xFF;
+}
+
+int16_t read16(uint8_t reg) {
+  uint8_t b[2];
+  if (!readBytes(reg, b, 2)) return 0;
+  return (int16_t)((b[0] << 8) | b[1]);
+}
+
+static inline int clamp127(int v) {
   if (v > 127) return 127;
   if (v < -127) return -127;
-  return (int8_t)v;
+  return v;
 }
 
-void cursorFunction(float &x, float &y, float &z) {
-  float ax = cursor.readFloatAccelX();
-  float ay = cursor.readFloatAccelY();
-  float az = cursor.readFloatAccelZ();
-  float gx = cursor.readFloatGyroX();
-  float gy = cursor.readFloatGyroY();
-  float gz = cursor.readFloatGyroZ(); //unused for mouse atm
+// Active-low because encoder common C is tied to GND
+int readEncoder8421() {
+  int b1 = (digitalRead(ENC_1) == LOW) ? 1 : 0;
+  int b2 = (digitalRead(ENC_2) == LOW) ? 1 : 0;
+  int b4 = (digitalRead(ENC_4) == LOW) ? 1 : 0;
+  int b8 = (digitalRead(ENC_8) == LOW) ? 1 : 0;
 
-  //angle in deg
-  float accelAngleX = atan2(ay, az) * 180.0f / PI;
-  float accelAngleY = atan2(-ax, az) * 180.0f / PI;
-
-
-  //complementary filter used to merge gyroscope and accelerometer 
-  compAngleX = ALPHA * (compAngleX + gx * DT) + (1.0f - ALPHA) * accelAngleX;
-  compAngleY = ALPHA * (compAngleY + gy * DT) + (1.0f - ALPHA) * accelAngleY;
-
-  //scaling to match previous cursor movements
-  x =  compAngleX / 90.0f;
-  y = -compAngleY / 90.0f;   //negate so tilting forward moves cursor up
-  
-
+  return b1 + 2 * b2 + 4 * b4 + 8 * b8;
 }
 
-int EncoderValueFunction(){
-  int eight = digitalRead(EncoderEight);
-  int four = digitalRead(EncoderFour);
-  int two = digitalRead(EncoderTwo);
-  int one = digitalRead(EncoderOne);
+// Returns +1, -1, or 0 for one encoder step
+int readEncoderStep() {
+  int current = readEncoder8421();
 
-  int scrollAmount = 0;
-  int value = one + 2*two + 2*2*four + 2*2*2*eight; //Converting the encoder values from binary to decimal
-
-  if((value > pastEncoderValue || (value == 0 && pastEncoderValue ==15)) && !(value == 15 && pastEncoderValue == 0)){
-    scrollAmount = 1;
-  }
-  else if ((value < pastEncoderValue || (value == 15 && pastEncoderValue == 0)) && !(value == 0 && pastEncoderValue ==15)){
-    scrollAmount = -1;
+  if (lastEncValue < 0) {
+    lastEncValue = current;
+    return 0;
   }
 
-  pastEncoderValue = value;
-  return scrollAmount;
-}
+  if (current == lastEncValue) return 0;
 
-void readAxis(uint8_t reg, byte &dst, int8_t &out) {
-  Wire.beginTransmission(0x0A);
-  Wire.write(reg);
-  Wire.endTransmission(false);
-  Wire.requestFrom(0x0A, (uint8_t)1);
+  unsigned long now = millis();
+  if (now - lastEncChangeMs < 5) {
+    return 0;
+  }
+  lastEncChangeMs = now;
 
-  if (Wire.available()) dst = Wire.read();
-  out = ((int8_t)dst) >> 2;
-}
+  int diff = current - lastEncValue;
 
-void mouseFunction(float xVal, float yVal, int scroll) {
-  if (!bleMouse.isConnected()) return;
+  // Wrap handling for 0..15
+  if (diff == 1 || diff == -15) {
+    lastEncValue = current;
+    return +1;
+  }
+  if (diff == -1 || diff == 15) {
+    lastEncValue = current;
+    return -1;
+  }
 
-  float sensitivity = RotationSensor();
-
-  int dx = (int)(xVal * 40.0f * sensitivity);
-  int dy = (int)(yVal * 40.0f * sensitivity);
-
-  //deadzone to stop jitter
-  if (abs(dx) < 1) dx = 0;
-  if (abs(dy) < 1) dy = 0;
-
-Serial.print("sensitivity - "); Serial.println(sensitivity);
-  Serial.print("x - "); Serial.println(dx);
-  Serial.print("y - "); Serial.println(dy);
-
-  bleMouse.move(clamp127(dy), clamp127(dx), scroll);
+  // Ignore jumps/noise and resync
+  lastEncValue = current;
+  return 0;
 }
 
 float RotationSensor() {
   rotationVal = analogRead(SCROLL);
-
-  // x = (x*0.5f/4095.0f)*rotationVal;
-  // y = (y*0.5f/4095.0f)*rotationVal;
-
   return (rotationVal / 4095.0f); 
 }
 
-void printInformation(bool leftClickPressed, bool rightClickPressed, float x, float y, float z){
+void setup() {
+  Serial.begin(115200);
 
-  //Mouse Button Press
-  // Serial.print("Left-Click: ");
-  // Serial.print(leftClickPressed);
-  // Serial.print("Right-Click: ");
-  // Serial.print(rightClickPressed);
+  pinMode(BOOT_BUTTON_PIN, INPUT_PULLUP);
 
-  
-  // Serial.print("Divi: ");
-  // Serial.println(divi);
+  pinMode(LEFT_BUTTON_PIN, INPUT_PULLUP);
+  pinMode(RIGHT_BUTTON_PIN, INPUT_PULLUP);
 
-  Serial.print("X="); Serial.print(x);
-  Serial.print("  Y="); Serial.print(y);
-  // Serial.print("  Z="); Serial.println(z);
+  pinMode(ENC_1, INPUT_PULLUP);
+  pinMode(ENC_2, INPUT_PULLUP);
+  pinMode(ENC_4, INPUT_PULLUP);
+  pinMode(ENC_8, INPUT_PULLUP);
 
- // Serial.print ('Curved Response = '); Serial.println()
+  Wire.begin(21, 22);
+  Wire.setClock(100000);
 
+  // Wake IMU
+  writeReg(0x6B, 0x00);
+  delay(100);
+
+  // Configure IMU
+  writeReg(0x1C, 0x00);   // accel ±2g
+  writeReg(0x1B, 0x00);   // gyro ±250 dps
+  writeReg(0x1A, 0x04);   // DLPF
+  delay(50);
+
+  Serial.print("WHO_AM_I=0x");
+  Serial.println(readReg(0x75), HEX);
+
+  lastEncValue = readEncoder8421();
+  Serial.print("Initial encoder value = ");
+  Serial.println(lastEncValue);
+
+  // Active-low buttons
+  lastLeftMousePressed = (digitalRead(LEFT_BUTTON_PIN) == LOW);
+  lastRightMousePressed = (digitalRead(RIGHT_BUTTON_PIN) == LOW);
+
+  mouse.setLogLevel(HIDLogLevel::Normal);
+  mouse.begin();
 }
-
-void buttonFunction(bool &leftClickPressed, bool &rightClickPressed){
-  if(!bleMouse.isConnected()) return;
-
-  leftClickPressed = digitalRead(LEFT_CLICK);
-  rightClickPressed = digitalRead(RIGHT_CLICK);
-
-  if(!leftClickPressed && !leftMouseCurrentlyBeingPressed){ //Using NOTleftClickPressed because using INPUT_PULLUP
-    bleMouse.click(MOUSE_LEFT);
-    leftMouseCurrentlyBeingPressed = true;
-  }
-  else if(leftClickPressed){
-    leftMouseCurrentlyBeingPressed = false;
-  }
-  
-  if(!rightClickPressed && !rightMouseCurrentlyBeingPressed){ //Using NOTleftClickPressed because using INPUT_PULLUP
-    bleMouse.click(MOUSE_RIGHT);
-    rightMouseCurrentlyBeingPressed = true;
-  }
-  else if(rightClickPressed){
-    rightMouseCurrentlyBeingPressed = false;
-  }
-}
-
-void accelerometerFunction(float &x, float &y, float &z){
-  int8_t x_data, y_data, z_data;
-
-  readAxis(0x04, Version[0], x_data);
-  readAxis(0x06, Version[1], y_data);
-  readAxis(0x08, Version[2], z_data);
-
-  x = (float)x_data / divi;
-  y = (float)y_data / divi;
-  z = (float)z_data / divi;
-}
-
-float xVelocity(float x, float prevX, float prevT){
-  return (x-prevX)/(T - prevT);
-}
-
-float yVelocity(float y, float prevY, float prevT){
-  if(T == prevT){
-    return 0;
-  }
-  return (y-prevY)/(T - prevT);
-}
-
-
-float curvedResponse(float input) {
-  float scalingFactor;
-
-  if(input >= 0){
-    scalingFactor = 0.5;
-  }
-  else{
-    scalingFactor = -0.5;
-  }
-  
-  float a = fabs(input);
-
-  if (a < 0.05f) return 0.0f;   // deadzone
-
-  return scalingFactor*(exp(1.25f * a) - 1.0f);
-}
-
 
 void loop() {
-  
-  float x, y, z;
-  bool leftClickPressed, rightClickPressed;
+  bool paired = mouse.isPaired();
 
+  if (!paired) {
+    lastPairedState = false;
+    delay(20);
+    return;
+  }
 
   int val;
   val = analogRead(TOUCH_SENSOR);
@@ -325,59 +184,112 @@ void loop() {
 
   double dt = currentTime - timeSinceTrigger;
 
-  // if(dt < 100000){
-  //   DT = (millis() - T)/1000.0;
-  //   T = millis();
-    K.F = {1.0,  0,
-            0.0, 1.0};
+  if(dt < 100000){
 
+    // Sync button state once immediately after pairing
+    if (!lastPairedState) {
+      lastPairedState = true;
 
-    cursorFunction(x, y, z);
-    
-    buttonFunction(leftClickPressed, rightClickPressed);
-    float scroll = EncoderValueFunction();
-    
-    //accelerometerFunction(x, y, z);
-    //printInformation(leftClickPressed, rightClickPressed, x, y, z);
-    //RotationSensor(x, y);
-    // Serial.print("gyro x = "); Serial.println(x);
-    // Serial.print("gyro y = "); Serial.println(y);
+      lastLeftMousePressed = (digitalRead(LEFT_BUTTON_PIN) == LOW);
+      lastRightMousePressed = (digitalRead(RIGHT_BUTTON_PIN) == LOW);
 
+      mouse.setButton(MouseButton::Left, lastLeftMousePressed);
+      mouse.setButton(MouseButton::Right, lastRightMousePressed);
+    }
 
-    obs(0) = x;
-    obs(1) = y;
-    K.update(obs);
+    // BOOT test move
+    bool bootPressed = (digitalRead(BOOT_BUTTON_PIN) == LOW);
+    if (bootPressed && !lastBootPressed) {
+      delay(20);
+      if (digitalRead(BOOT_BUTTON_PIN) == LOW) {
+        Serial.println("BOOT pressed -> forced move");
+        mouse.move(40, 0);
+        delay(150);
+        mouse.move(-40, 0);
+      }
+    }
+    lastBootPressed = bootPressed;
 
-    // Serial.println("Non-filtered values: ");
-    // Serial.print("X = ");
-    // Serial.println(x);
-    // Serial.print("Y = ");
-    // Serial.println(y, 6);
+    // Left/right mouse buttons
+    bool leftPressed = (digitalRead(LEFT_BUTTON_PIN) == LOW);
+    bool rightPressed = (digitalRead(RIGHT_BUTTON_PIN) == LOW);
 
-    // Serial.println("Filtered values: ");
-    // Serial.print("X = ");
-    // Serial.println(K.x(0));
-    // Serial.print("Y = ");
-    // Serial.println(K.x(1));
+    if (leftPressed != lastLeftMousePressed) {
+      lastLeftMousePressed = leftPressed;
+      mouse.setButton(MouseButton::Left, leftPressed);
 
-    x = K.x(0);
-    y = K.x(1);
+      Serial.print("Left mouse button ");
+      Serial.println(leftPressed ? "pressed" : "released");
+    }
 
-    // Serial.print("kalman x = "); Serial.println(x);
-    // Serial.print("Kalman y = "); Serial.println(y);
+    if (rightPressed != lastRightMousePressed) {
+      lastRightMousePressed = rightPressed;
+      mouse.setButton(MouseButton::Right, rightPressed);
 
-  x = curvedResponse(x);
-  y = curvedResponse(y);
+      Serial.print("Right mouse button ");
+      Serial.println(rightPressed ? "pressed" : "released");
+    }
 
-    // Serial.print("curved x = "); Serial.println(x);
-    // Serial.print("curved y = "); Serial.println(y);
+    // IMU mouse movement
+    int16_t ax = read16(0x3B);
+    int16_t ay = read16(0x3D);
+    int16_t az = read16(0x3F);
 
-    // Serial.print("X: ");
-    // Serial.println(x);
-    // Serial.print("Y: ");
-    // Serial.println(y);
-    mouseFunction(x, y, scroll);
-  // }
+    float fax = ax / 16384.0f;
+    float fay = ay / 16384.0f;
+    float faz = az / 16384.0f;
+
+    // Corrected mapping:
+    // forward tilt -> up
+    // back tilt -> down
+    // left tilt -> left
+    // right tilt -> right
+
+    float sensitivity = RotationSensor();
+
+    int dx = (int)(-fax * 35.0f * sensitivity);
+    int dy = (int)( fay * 35.0f * sensitivity);
+
+    if (abs(dx) < 2) dx = 0;
+    if (abs(dy) < 2) dy = 0;
+
+    dx = clamp127(dx);
+    dy = clamp127(dy);
+
+    if (dx != 0 || dy != 0) {
+      mouse.move(dx, dy);
+    }
+
+    // Encoder scroll
+    int step = readEncoderStep();
+    if (step != 0) {
+      // Reverse sign here if scroll direction feels wrong
+      mouse.addScroll(-step);
+
+      Serial.print("Encoder value = ");
+      Serial.print(lastEncValue);
+      Serial.print(" step = ");
+      Serial.print(step);
+      Serial.print(" scroll sent = ");
+      Serial.println(-step);
+    }
+
+    if (millis() - lastPrint > 250) {
+      lastPrint = millis();
+      Serial.print("ax=");
+      Serial.print(fax, 3);
+      Serial.print(" ay=");
+      Serial.print(fay, 3);
+      Serial.print(" az=");
+      Serial.print(faz, 3);
+      Serial.print(" enc=");
+      Serial.print(lastEncValue);
+      Serial.print(" left=");
+      Serial.print(leftPressed ? 1 : 0);
+      Serial.print(" right=");
+      Serial.println(rightPressed ? 1 : 0);
+    }
+  }
 
   delay(10);
 }
