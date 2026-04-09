@@ -13,6 +13,7 @@ const int ENC_1 = 25;
 const int ENC_2 = 26;
 const int ENC_4 = 27;
 const int ENC_8 = 14;
+const int TOUCH_SENSOR = 4; //touch sensor pin
 
 const int SCROLL = 15;
 
@@ -56,6 +57,23 @@ bool readBytes(uint8_t reg, uint8_t *buf, uint8_t len) {
     buf[i] = Wire.read();
   }
   return true;
+}
+
+float curvedResponse(float input) {
+  float scalingFactor;
+
+  if(input >= 0){
+    scalingFactor = 2;
+  }
+  else{
+    scalingFactor = -2;
+  }
+  
+  float a = fabs(input);
+
+  if (a < 0.05f) return 0.0f;   // deadzone
+
+  return scalingFactor*(exp(0.25f * a) - 1.0f);
 }
 
 uint8_t readReg(uint8_t reg) {
@@ -160,7 +178,11 @@ void setup() {
 
   mouse.setLogLevel(HIDLogLevel::Normal);
   mouse.begin();
+  
 }
+
+double currentTime = 0;
+double timeSinceTrigger = 0;
 
 void loop() {
   bool paired = mouse.isPaired();
@@ -195,6 +217,19 @@ void loop() {
   }
   lastBootPressed = bootPressed;
 
+  int val;
+  val = analogRead(TOUCH_SENSOR);
+  Serial.println(val, DEC);
+
+  currentTime = millis();
+
+  if(val > 10){
+    timeSinceTrigger = millis();
+  }
+
+  double dt = currentTime - timeSinceTrigger;
+
+  if(dt < 100000){
   // Left/right mouse buttons
   bool leftPressed = (digitalRead(LEFT_BUTTON_PIN) == LOW);
   bool rightPressed = (digitalRead(RIGHT_BUTTON_PIN) == LOW);
@@ -239,6 +274,9 @@ void loop() {
   dy = clamp127(dy);
 
   if (dx != 0 || dy != 0) {
+    dx = curvedResponse(dx);
+    dy = curvedResponse(dy);
+
     RotationSensor(dx, dy);
     mouse.move(dx, dy);
   }
@@ -271,6 +309,7 @@ void loop() {
     Serial.print(leftPressed ? 1 : 0);
     Serial.print(" right=");
     Serial.println(rightPressed ? 1 : 0);
+  }
   }
 
   delay(10);
